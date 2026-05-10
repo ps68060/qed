@@ -38,9 +38,104 @@ typedef enum {
 	E_HL_DUPTEXT       /* doubly defined text definition */
 } HL_ERRTYPE;
 
+
+
+/* chained list string */
+typedef struct stringentry {
+	int len;
+	char *name;
+	struct stringentry *next;
+} STRINGENTRY;
+
+
+/* rule types */
+typedef enum {
+	RULE_KEYWORD,  /* rule is a keyword, e.g. C keywords: <if>,<while>, ... */
+	RULE_FROM,     /* start of a to- or while-rule, e.g. Pascal-Comment: "(*", c-hex-constants: "0x"  */
+	RULE_TO,       /* to-rule (eg. Pascal-Comment: "*)") */
+	RULE_WHILE     /* while-rule (e.g. c-hex-constants: <0-9>,<a-f>) */
+} RULETYPE;
+
+
+/* style struct; attribs and colors */
+typedef struct {
+	HL_ELEM attribs;
+	long color;
+	long selcolor;
+} HL_STYLEINFO;
+
+
+/* resolution type */
+typedef enum {
+	COLOR2,
+	COLOR16,
+	COLOR256,
+	NUM_RESTYPES
+} RESTYPE;
+
+/* text rule flags */
+#define TXTRULEF_CASE 1      /* text is case-sensitive */
+#define TXTRULEF_ACTIVE 2
+
+#ifndef BOOLEAN
+typedef short BOOLEAN;
+#endif
+
+/* a rule; description for detecting keywords/chars and setting the corresponding colors and flags */
+typedef struct rule {
+	char *name;                       /* name of the rule, e.g. "Comment" */
+	BOOLEAN dup;                      /* duplicate rule; another rule of the same name already exists, only the attributes of the 1st rule are valid */
+	RULETYPE type;                    /* rule type, RULE_... */
+	int flags;                        /* rule flags, RULEF_... */
+	HL_STYLEINFO style[NUM_RESTYPES]; /* attributes & colors for different resolutions */
+	HL_ELEM attribs;                  /* actual text attributes */
+	long color;                       /* actual text color */
+	long selcolor;                    /* actual selected text color */
+	STRINGENTRY *kwstring[256];       /* all strings to be searched for, indexed by the first char */
+	char kwsinglechar[256];           /* all single chars of this rule */
+	char kwchar[256];                 /* all beginning chars of kwsinglechar and kwstring (pre filter) */
+	unsigned char quotechar;          /* quote char, as e.g. \ in C strings */
+	struct rule *link;                /* stoprule, if type == RULE_FROM, or link to startrule if nested rule */
+	struct rule *next;                /* next rule struct */
+} RULE;
+
+/* a cache entry */
+typedef struct cacheline {
+	char *line;                  /* source text row */
+	RULE *startrule;             /* rule which is active at the beginning of the row */
+	RULE *endrule;               /* rule which is active at the end of the row */
+	HL_LINE cachetok;            /* the encoded text format */
+	struct cacheline *next;      /* next cache entry */
+	int startcount;              /* for nested rules: count at the start of the cache line */
+	int endcount;                /* count at the end of the cache line */
+} CACHE;
+
+/* Rule for a text type, e.g. "c"/"h", "pas", "s"... */
+typedef struct txtrule {
+	char *name;                  /* name of the text type, e.g. "C source" */
+	char *filename;              /* filename of this rule */
+	STRINGENTRY *txttypes;       /* txttypes of the text type, e.g "c" and "h" for c files */
+	char token[256];             /* all chars this text type uses in its rules */
+	char kwstartchar[256];       /* pre filter for start rules */
+	char kwendchar[256];         /* pre filter for end rules */
+	int flags;                   /* text flags, TXTRULEF_... */
+	RULE *rules;                 /* the rules for this text type */
+	BOOLEAN checked;             /* this textrule is checked already in check_rules() */
+	struct txtrule *next;        /* next text type */
+} TXTRULE;
+
+/* the base for the cache of a text */
+typedef struct cacheb {
+	CACHE *cache;                /* cache entries */
+	TXTRULE *txtrule;            /* text rule (is it c, pascal...? */
+	struct cacheb *next;
+} CACHEBASE;
+
 /* init and exit routines */
 void Hl_Init( void (*err_callback)( char *currfile, HL_ERRTYPE err, int linenr ) );
 void Hl_Exit( void );
+
+static CACHEBASE *cacheanchor = NULL; /* anchor for syntax cache */
 
 /* read and write syntax file */
 int Hl_ReadSyn( char *filename, int curr_planes, int settingsonly );

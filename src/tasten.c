@@ -4,6 +4,7 @@
 #include "clipbrd.h"
 #include "edit.h"
 #include "find.h"
+#include "highlite.h"
 #include "icon.h"
 #include "kurzel.h"
 #include "makro.h"
@@ -17,8 +18,10 @@
 #include "tasten.h"
 /* Heiko */
 #include "hl.h"
+#include <stdio.h>
+#include <string.h>
 
-/* Modi fÅr deselect_block() */
+/* Modi fÔøΩr deselect_block() */
 #define UP		1
 #define DOWN	2
 #define LEFT	3
@@ -319,7 +322,7 @@ static void char_right(TEXTP t_ptr)
 
 
 /*
- * Text hinzufÅgen
+ * Text hinzufÔøΩgen
 */
 void char_cr(TEXTP t_ptr) 				/* -> kurzel.c */
 {
@@ -343,7 +346,7 @@ void char_cr(TEXTP t_ptr) 				/* -> kurzel.c */
 		t_ptr->xpos = 0;
 
 /*
-Problem: Wenn ein Block markiert war, muû eventuell gescrollt werden
+Problem: Wenn ein Block markiert war, muÔøΩ eventuell gescrollt werden
          und es kommt zu Redraw-Fehlern, da doch mehr Zeilen betroffen sind!
 
 	make_chg(t_ptr->link,SCROLL_DOWN,t_ptr->ypos);
@@ -361,7 +364,7 @@ void char_insert(TEXTP t_ptr, char c)
 {
 	t_ptr->up_down = FALSE;
 
-	/* Null nur in BinÑr erlaubt! */
+	/* Null nur in BinÔøΩr erlaubt! */
 	if (c == 0 && t_ptr->text.ending != lns_binmode)
 	{
 		Bconout(2, 7);
@@ -496,7 +499,7 @@ static void char_delete(TEXTP t_ptr)
 }
 
 static void word_bs(TEXTP t_ptr)
-/* Lîschen wortweise nach links */
+/* LÔøΩschen wortweise nach links */
 {
 	short	xpos = t_ptr->xpos - 1;
 	bool	in_word = FALSE;
@@ -525,7 +528,7 @@ static void word_bs(TEXTP t_ptr)
 
 /* this is a longonly */
 static void ctrl_word_bs(TEXTP t_ptr)
-/* Lîschen wortweise nach links */
+/* LÔøΩschen wortweise nach links */
 {
 	short	xpos = t_ptr->xpos;
 	bool in_word = FALSE;
@@ -569,7 +572,7 @@ static void ctrl_word_bs(TEXTP t_ptr)
 
 /* this is a longonly */
 static void ctrl_word_delete(TEXTP t_ptr)
-/* Lîschen wortweise nach links */
+/* LÔøΩschen wortweise nach links */
 {
 	short	xpos = t_ptr->xpos;
 	bool	in_whites = FALSE;
@@ -609,7 +612,7 @@ static void ctrl_word_delete(TEXTP t_ptr)
 }
 
 static void word_delete(TEXTP t_ptr)
-/* Lîschen bis zum nÑchsten Wortanfang */
+/* LÔøΩschen bis zum nÔøΩchsten Wortanfang */
 {
 	short xpos = t_ptr->xpos;
 	bool	in_word = FALSE;
@@ -643,7 +646,7 @@ static void ctrl_y(TEXTP t_ptr)
 	{
 		t_ptr->xpos = 0;
 		blk_mark(t_ptr, 0);
-		if (IS_LAST(col))					/* letzte Zeile im Text nur kÅrzen */
+		if (IS_LAST(col))					/* letzte Zeile im Text nur kÔøΩrzen */
 		{
 			t_ptr->xpos = col->len;
 			blk_mark(t_ptr,1);
@@ -704,6 +707,69 @@ static void deselect_block(TEXTP t_ptr, short dir)
 	icon_edit(t_ptr->link, DO_GOTO);
 }
 
+static void get_word_at_cursor(TEXTP t_ptr, char *word, int max_len)
+{
+	short start_pos, end_pos;
+	char *line_text;
+
+	line_text = TEXT(t_ptr->cursor_line);
+	start_pos = t_ptr->xpos;
+	end_pos = t_ptr->xpos;
+
+	/* Find start of word */
+	while (start_pos > 0 && setin(t_ptr->loc_opt->wort_set, line_text[start_pos - 1]))
+		start_pos--;
+
+	/* Find end of word */
+	while (end_pos < t_ptr->cursor_line->len && setin(t_ptr->loc_opt->wort_set, line_text[end_pos]))
+		end_pos++;
+
+	/* Copy word to buffer */
+	int word_len = end_pos - start_pos;
+	if (word_len > 0 && word_len < max_len)
+	{
+		strncpy(word, line_text + start_pos, word_len);
+		word[word_len] = '\0';
+	}
+	else
+	{
+		word[0] = '\0';
+	}
+}
+
+
+static bool is_keyword(TEXTP t_ptr, char *word)
+{
+	CACHEBASE *ca_base = (CACHEBASE *) t_ptr->text.hl_anchor;
+	TXTRULE *trule;
+	RULE *rule;
+	STRINGENTRY *se;
+	int (*cmpfunc)(const char *, const char *) = (ca_base && ca_base->txtrule && (ca_base->txtrule->flags & TXTRULEF_CASE)) ? strcmp : stricmp;
+
+	if (!ca_base || !ca_base->txtrule)
+		return FALSE;
+
+	trule = ca_base->txtrule;
+
+	for (rule = trule->rules; rule; rule = rule->next)
+	{
+		if (rule->type == RULE_KEYWORD)
+		{
+			se = rule->kwstring[(unsigned char)word[0]];
+			while (se)
+			{
+				if (cmpfunc(se->name, word) == 0)
+					return TRUE;
+				se = se->next;
+			}
+			if (strlen(word) == 1 && rule->kwsinglechar[(unsigned char)word[0]])
+				return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+
 
 bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 {
@@ -719,7 +785,7 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 	ctrl = (kstate & K_CTRL) != 0;
 	alt = (kstate & K_ALT) != 0;
 
-	/* Sonderbehandlung fÅr ^Y */
+	/* Sonderbehandlung fÔøΩr ^Y */
 	if (ascii_code == 'Y' && ctrl)
 	{
 		cursor_visible(window, t_ptr);
@@ -728,6 +794,26 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 		t_ptr->up_down = FALSE;
 		return TRUE;
 	}
+
+    /* CTAGS object search with Ctrl-] (not functional yet) */
+    if (ascii_code == ']' && ctrl)
+    {
+        char word[256];
+        get_word_at_cursor(t_ptr, word, sizeof(word));
+        /* For now, just output to indicate word was found */
+        if (word[0] != '\0')
+        {
+            if (is_keyword(t_ptr, word))
+            {
+                Bconout(2, 7);  /* keyword so beep */
+            }
+            else
+            {
+                printf("object: %s\n", word);
+            }
+        }
+    }
+
 
 	if (alt_cnt != -1 && !(nkey & NKF_FUNC))
 		alt_cnt = -1;
@@ -875,7 +961,7 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 						line_up(t_ptr);
 						blk_mark(t_ptr,1);
 					}
-					else 	/* seitenweise BlÑttern, fÅr PC-Tastaturen PgUp/Down */
+					else 	/* seitenweise BlÔøΩttern, fÔøΩr PC-Tastaturen PgUp/Down */
 					{
 						arrow_window(window, WA_UPLINE, 1);
 					#if 0
