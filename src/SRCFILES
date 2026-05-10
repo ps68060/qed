@@ -51,6 +51,7 @@ COBJS = \
 	./block.c \
 	./clipbrd.c \
 	./comm.c \
+	./ctags.c \
 	./dd.c \
 	./edit.c \
 	./error.c \

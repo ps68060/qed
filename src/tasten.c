@@ -809,6 +809,21 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
             }
             else
             {
+				/* Load CTAG file and find matching line */
+				int num_tags = load_ctags("TAGS");
+				printf("ctags found: %d\n", num_tags);
+				if (num_tags > 0)
+				{
+					const char *tag_pattern = find_tag(word);
+					if (tag_pattern)
+					{
+						printf("tag: %s -> %s\n", word, tag_pattern);
+					}
+					else
+					{
+						printf("tag: %s not found\n", word);
+					}
+				}
                 printf("object: %s\n", word);
             }
         }
