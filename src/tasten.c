@@ -814,10 +814,15 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
                 /* Load CTAG file from the directory of the current file */
 				split_filename(t_ptr->filename, tags_path, NULL);
 				strcat(tags_path, "tags");
+
 				int num_tags = load_ctags(tags_path);
-				printf("ctags found: %d\n", num_tags);
-				if (num_tags > 0)
+				if (num_tags < 1)
 				{
+			        printf("No tags found");
+				}
+				else
+				{
+    				printf("ctags found: %d\n", num_tags);
 					const char *tag_pattern = find_tag(word);
 					if (tag_pattern)
 					{
