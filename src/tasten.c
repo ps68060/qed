@@ -558,7 +558,7 @@ static void ctrl_word_bs(TEXTP t_ptr)
 			while (setin(t_ptr->loc_opt->wort_set, TEXT(t_ptr->cursor_line)[xpos]) && xpos > 0)
 			{
 				xpos--;
-				in_word = TRUE;
+			 in_word = TRUE;
 			}
 			
 			if (in_word && !setin(t_ptr->loc_opt->wort_set, TEXT(t_ptr->cursor_line)[xpos]))
@@ -799,6 +799,7 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
     if (ascii_code == ']' && ctrl)
     {
         char word[256];
+        PATH tags_path;
         get_word_at_cursor(t_ptr, word, sizeof(word));
         /* For now, just output to indicate word was found */
         if (word[0] != '\0')
@@ -809,8 +810,10 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
             }
             else
             {
-				/* Load CTAG file and find matching line */
-				int num_tags = load_ctags("TAGS");
+				/* Load CTAG file from the directory of the current file */
+				split_filename(t_ptr->filename, tags_path, NULL);
+				strcat(tags_path, "TAGS");
+				int num_tags = load_ctags(tags_path);
 				printf("ctags found: %d\n", num_tags);
 				if (num_tags > 0)
 				{
