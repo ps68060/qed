@@ -810,9 +810,10 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
             }
             else
             {
-				/* Load CTAG file from the directory of the current file */
+                printf("object: %s\n", word);
+                /* Load CTAG file from the directory of the current file */
 				split_filename(t_ptr->filename, tags_path, NULL);
-				strcat(tags_path, "TAGS");
+				strcat(tags_path, "tags");
 				int num_tags = load_ctags(tags_path);
 				printf("ctags found: %d\n", num_tags);
 				if (num_tags > 0)
@@ -827,7 +828,6 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 						printf("tag: %s not found\n", word);
 					}
 				}
-                printf("object: %s\n", word);
             }
         }
     }
