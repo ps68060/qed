@@ -2,7 +2,9 @@
 #include "ausgabe.h"
 #include "block.h"
 #include "clipbrd.h"
+#include "ctags.h"
 #include "edit.h"
+#include "file.h"
 #include "find.h"
 #include "highlite.h"
 #include "icon.h"
@@ -795,45 +797,80 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 		return TRUE;
 	}
 
-    /* CTAGS object search with Ctrl-] (not functional yet) */
+    /* CTAGS object search with Ctrl-] */
     if (ascii_code == ']' && ctrl)
     {
         char word[256];
         PATH tags_path;
+        char full_tag_path[MAX_PATH_LEN];
+        
         get_word_at_cursor(t_ptr, word, sizeof(word));
-        /* For now, just output to indicate word was found */
-        if (word[0] != '\0')
+        
+        if (word[0] != '\0' && !is_keyword(t_ptr, word))
         {
-            if (is_keyword(t_ptr, word))
+            /* Load CTAG file from the directory of the current file */
+            split_filename(t_ptr->filename, tags_path, NULL);
+            strcat(tags_path, "TAGS");
+            
+            int num_tags = load_ctags(tags_path);
+            if (num_tags > 0)
             {
-                Bconout(2, 7);  /* keyword so beep */
+                const char *tag_file = get_tag_file(word);
+                int tag_line = get_tag_line(word);
+                
+                if (tag_file && tag_line >= 0)
+                {
+                    /* Construct full path for tag file */
+                    split_filename(t_ptr->filename, full_tag_path, NULL);
+                    strcat(full_tag_path, tag_file);
+                    
+                    /* Check if file is already loaded */
+                    short win_link = text_still_loaded(full_tag_path);
+                    TEXTP target_text = NULL;
+                    WINDOWP target_window = NULL;
+                    
+                    if (win_link >= 0)
+                    {
+                        /* File is already loaded - get its text structure */
+                        target_text = get_text(win_link);
+                    }
+                    else
+                    {
+                        /* Load the file */
+                        load_edit(full_tag_path, FALSE);
+                        win_link = text_still_loaded(full_tag_path);
+                        if (win_link >= 0)
+                        {
+                            target_text = get_text(win_link);
+                        }
+                    }
+                    
+                    if (target_text)
+                    {
+                        /* Navigate to the line using get_line */
+                        LINEP line_ptr = get_line(&target_text->text, tag_line);
+                        if (line_ptr && !IS_TAIL(line_ptr))
+                        {
+                            target_text->cursor_line = line_ptr;
+                            target_text->xpos = 0;
+                            target_text->ypos = tag_line;
+                            target_text->up_down = FALSE;
+                            make_chg(target_text->link, POS_CHANGE, 0);
+                            
+                            /* Bring window to top */
+                            target_window = get_window(target_text->link);
+                            if (target_window)
+                            {
+                                top_window(target_window);
+                            }
+                        }
+                    }
+                }
             }
-            else
-            {
-                printf("object: %s\n", word);
-                /* Load CTAG file from the directory of the current file */
-				split_filename(t_ptr->filename, tags_path, NULL);
-				strcat(tags_path, "tags");
-
-				int num_tags = load_ctags(tags_path);
-				if (num_tags < 1)
-				{
-			        printf("No tags found");
-				}
-				else
-				{
-    				printf("ctags found: %d\n", num_tags);
-					const char *tag_pattern = find_tag(word);
-					if (tag_pattern)
-					{
-						printf("tag: %s -> %s\n", word, tag_pattern);
-					}
-					else
-					{
-						printf("tag: %s not found\n", word);
-					}
-				}
-            }
+        }
+        else if (word[0] == '\0')
+        {
+            Bconout(2, 7);  /* beep - no word at cursor */
         }
     }
 
