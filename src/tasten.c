@@ -1238,7 +1238,10 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 				case NK_UNDO:
 					if (!t_ptr->block)
 						cursor_visible(window, t_ptr);
-					icon_edit(t_ptr->link, DO_UNDO);
+					if (shift)
+						icon_edit(t_ptr->link, DO_REDO);
+					else
+						icon_edit(t_ptr->link, DO_UNDO);
 					break;
 				case NK_UP:
 					if (!t_ptr->block)

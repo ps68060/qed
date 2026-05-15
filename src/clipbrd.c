@@ -15,7 +15,7 @@ PATH	clip_dir;
 
 /****** DEFINES ************************************************************/
 
-#define MAX_UNDO	5
+#define MAX_UNDO	50
 #define END_UNDO	-1
 
 /* loake Variablen *********************************************************/
@@ -27,7 +27,7 @@ static short	undo_anz;
 static RING	undo_text;
 static short	undo_ptr;
 
-static char	save_col[MAX_LINE_LEN];		/* Gerettete Zeile fÅr Undo */
+static char	save_col[MAX_LINE_LEN];		/* Gerettete Zeile fÔøΩr Undo */
 static short	save_len;
 static short	save_xpos;
 
@@ -42,11 +42,46 @@ void clr_undo(void)
 	undo_anz = 0;
 }
 
+void clr_redo(void)
+{
+	short i, end_pos;
+	
+	if (undo_ptr < 0)
+		return;	/* Nothing to clear */
+	
+	/* Find the END_UNDO marker after current position */
+	for (i=undo_ptr+1; i<undo_anz; i++)
+		if (undo[i]==END_UNDO) break;
+	end_pos = i;
+	
+	if (end_pos < undo_anz)
+	{
+		/* Truncate undo stack to remove redo history */
+		undo_anz = end_pos;
+		undo_ptr = -1;
+	}
+}
+
 bool any_undo(void)
 {
 	if (undo_anz && undo[undo_anz-1]==END_UNDO)
 		return TRUE;
 	return FALSE;
+}
+
+bool any_redo(void)
+{
+	short i;
+
+	if (undo_ptr < 0)
+		return FALSE;	/* No undo performed yet */
+	
+	/* Find the END_UNDO marker (redo boundary) */
+	for (i=undo_ptr+1; i<undo_anz; i++)
+		if (undo[i]==END_UNDO) break;
+	
+	/* Can redo if there are operations before the boundary */
+	return (undo_ptr+1 < i);
 }
 
 bool test_col_anders(void)
@@ -87,6 +122,10 @@ void end_undo_seq(void)
 
 void add_undo(short undo_op)
 {
+	/* Clear redo history if we're adding new operations after an undo */
+	if (undo_ptr >= 0)
+		clr_redo();
+	
 	if (undo_anz<MAX_UNDO && (undo_anz==0 || undo[undo_anz-1]!=undo_op))
 		undo[undo_anz++] = undo_op;
 }
@@ -110,6 +149,30 @@ short get_undo(void)
 	return undo[undo_ptr];
 }
 
+short get_redo(void)
+{
+	short i, redo_limit;
+
+	if (undo_anz==0)
+		return NO_UNDO;
+	
+	/* Find the next END_UNDO marker (redo boundary) */
+	if (undo_ptr<0)
+		return NO_UNDO;	/* No undo was performed, nothing to redo */
+	
+	/* Find where current undo sequence ends */
+	for (i=undo_ptr+1; i<undo_anz; i++)
+		if (undo[i]==END_UNDO) break;
+	redo_limit = i;
+	
+	/* Check if we can move forward */
+	if (undo_ptr+1 >= redo_limit)
+		return NO_UNDO;	/* Already at end of redo sequence */
+	
+	undo_ptr++;
+	return undo[undo_ptr];
+}
+
 void undo_takes_text(RINGP r)
 {
 	kill_textring(&undo_text);
@@ -124,7 +187,7 @@ RINGP get_undo_text(void)
 }
 
 /*
- * UNDO fÅr eine Zeile
+ * UNDO fÔøΩr eine Zeile
 */
 void get_undo_col(TEXTP t_ptr)
 {
@@ -286,7 +349,7 @@ void init_clipbrd(void)
 		else
 		{
 			strcpy (s, clip_dir);
-			s[strlen(s)-1] = EOS;					/* Backslash lîschen */
+			s[strlen(s)-1] = EOS;					/* Backslash lÔøΩschen */
 			if (Dcreate(s) != 0)
 			{
 				note(1, 0, NOSCRAP);
