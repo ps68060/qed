@@ -5,6 +5,11 @@
 #include "ctags.h"
 #include "global.h"
 #include "memory.h"
+#include "text.h"
+#include "edit.h"
+#include "window.h"
+#include <stdlib.h>
+#include <string.h>
 
 /* Purpose: CTAG parsing logic:
              Parses standard CTAG format (name<tab>file<tab>pattern)</tab></tab>
@@ -265,3 +270,96 @@ int get_tag_line(const char *tag_name)
 
 	return -1;
 }
+
+/* Load a file into an edit window if not already loaded and return its TEXTP.
+   Returns NULL on failure. */
+TEXTP load_or_get_text(const char *full_tag_path)
+{
+	short win_link = text_still_loaded((char *)full_tag_path);
+	TEXTP target_text = NULL;
+
+	if (win_link >= 0)
+	{
+		target_text = get_text(win_link);
+	}
+	else
+	{
+		load_edit((char *)full_tag_path, FALSE);
+		win_link = text_still_loaded((char *)full_tag_path);
+		if (win_link >= 0)
+			target_text = get_text(win_link);
+	}
+	return target_text;
+}
+
+/* Navigate inside an already-loaded TEXTP to the tag location. If tag_line > 0
+   it is treated as 1-based and converted to 0-based. Otherwise the function
+   will attempt to find the CTAGS pattern for 'word' and search the file for
+   the first line containing that pattern. Returns TRUE if navigation moved
+   the cursor, FALSE otherwise. */
+bool navigate_to_tag_in_text(TEXTP target_text, int tag_line, const char *word)
+{
+	if (!target_text) return FALSE;
+
+	if (tag_line > 0)
+	{
+		long target_y = (long)tag_line - 1L;
+		LINEP line_ptr = get_line(&target_text->text, target_y);
+		if (line_ptr && !IS_TAIL(line_ptr))
+		{
+			target_text->cursor_line = line_ptr;
+			target_text->xpos = 0;
+			target_text->ypos = target_y;
+			target_text->up_down = FALSE;
+			make_chg(target_text->link, POS_CHANGE, 0);
+
+			WINDOWP target_window = get_window(target_text->link);
+			if (target_window)
+				top_window(target_window);
+			return TRUE;
+		}
+		return FALSE;
+	}
+	else
+	{
+		const char *tag_pattern = find_tag(word);
+		if (tag_pattern && tag_pattern[0] != EOS)
+		{
+			const char *pat = tag_pattern;
+			if (pat[0] == '/' || pat[0] == '?') pat++;
+
+			char *patbuf = strdup(pat);
+			if (!patbuf) return FALSE;
+
+			size_t bl = strlen(patbuf);
+			if (bl > 0 && patbuf[0] == '^') memmove(patbuf, patbuf + 1, bl);
+			bl = strlen(patbuf);
+			if (bl > 0 && patbuf[bl - 1] == '$') patbuf[bl - 1] = '\0';
+
+			LINEP scan = FIRST(&target_text->text);
+			long scan_y = 0;
+			while (!IS_TAIL(scan))
+			{
+				if (patbuf[0] != '\0' && strstr(TEXT(scan), patbuf) != NULL)
+				{
+					target_text->cursor_line = scan;
+					target_text->xpos = 0;
+					target_text->ypos = scan_y;
+					target_text->up_down = FALSE;
+					make_chg(target_text->link, POS_CHANGE, 0);
+
+					WINDOWP target_window = get_window(target_text->link);
+					if (target_window) top_window(target_window);
+
+					free(patbuf);
+					return TRUE;
+				}
+				NEXT(scan);
+				scan_y++;
+			}
+			free(patbuf);
+		}
+		return FALSE;
+	}
+}
+
