@@ -26,8 +26,10 @@ static short	undo[MAX_UNDO];
 static short	undo_anz;
 static RING	undo_text;
 static short	undo_ptr;
+static bool	undo_active = FALSE;   /* true while servicing get_undo sequence */
+static bool	redo_active = FALSE;   /* true while servicing get_redo sequence */
 
-static char	save_col[MAX_LINE_LEN];		/* Gerettete Zeile f�r Undo */
+static char	save_col[MAX_LINE_LEN];		/* Gerettete Zeile fr Undo | Rescued line for undo */
 static short	save_len;
 static short	save_xpos;
 
@@ -122,8 +124,10 @@ void end_undo_seq(void)
 
 void add_undo(short undo_op)
 {
-	/* Clear redo history if we're adding new operations after an undo */
-	if (undo_ptr >= 0)
+	/* Clear redo history if we're adding new operations after an undo/redo
+	   but DO NOT clear when we're in the middle of performing an undo or redo
+	   (those operations add inverse ops as part of the mechanism). */
+	if (undo_ptr >= 0 && !undo_active && !redo_active)
 		clr_redo();
 	
 	if (undo_anz<MAX_UNDO && (undo_anz==0 || undo[undo_anz-1]!=undo_op))
@@ -141,11 +145,17 @@ short get_undo(void)
 		for (i=0; i<undo_anz; i++)
 			if (undo[i]==END_UNDO) break;
 		if (i==undo_anz) return NO_UNDO;
+		/* Starting an undo sequence */
 		undo_ptr = i;
+		undo_active = TRUE;
 	}
 	undo_ptr--;
 	if (undo_ptr<0)
+	{
+		/* No more undo operations - end undo sequence */
+		undo_active = FALSE;
 		return NO_UNDO;
+	}
 	return undo[undo_ptr];
 }
 
@@ -158,7 +168,10 @@ short get_redo(void)
 	
 	/* Find the next END_UNDO marker (redo boundary) */
 	if (undo_ptr<0)
-		return NO_UNDO;	/* No undo was performed, nothing to redo */
+	{
+		redo_active = FALSE;
+		return NO_UNDO;    /* No undo was performed, nothing to redo */
+	}
 	
 	/* Find where current undo sequence ends */
 	for (i=undo_ptr+1; i<undo_anz; i++)
@@ -167,8 +180,13 @@ short get_redo(void)
 	
 	/* Check if we can move forward */
 	if (undo_ptr+1 >= redo_limit)
-		return NO_UNDO;	/* Already at end of redo sequence */
+	{
+		redo_active = FALSE;
+		return NO_UNDO;    /* Already at end of redo sequence */
+	}
 	
+	/* Starting/continuing a redo sequence */
+	redo_active = TRUE;
 	undo_ptr++;
 	return undo[undo_ptr];
 }
@@ -187,7 +205,7 @@ RINGP get_undo_text(void)
 }
 
 /*
- * UNDO f�r eine Zeile
+ * UNDO f�r eine Zeile | UNDO for one line
 */
 void get_undo_col(TEXTP t_ptr)
 {
@@ -232,7 +250,7 @@ void do_undo_col(TEXTP t_ptr, short undo_type)
 
 /*******************************************************************************/
 
-void save_clip(void)		/* nur wegschreiben */
+void save_clip(void)		/* nur wegschreiben | Just write away */
 {
 	if (clip_on_disk && clip_dirty)
 	{
@@ -251,6 +269,9 @@ void load_clip(void)		/* nur laden */
 	/*
 	 * Nur neu laden, wenn letzter Copy von qed bereits weggeschrieben wurde,
 	 * ansonsten sind die aktuellen Klembrett-Daten noch in clip_text.
+	 *
+	 * Only reload if last copy of qed has already been written away,
+	 * otherwise the current clipboard data is still in clip_text.
 	*/
 	if (clip_on_disk && !clip_dirty)
 	{
@@ -282,7 +303,7 @@ void clip_add_text(RINGP r)
 {
 	LINEP	col;
 
-	col = LAST(&clip_text);			/* letzte Zeile */
+	col = LAST(&clip_text);		            	/* letzte Zeile | last line */
 	col->next = FIRST(r);
 	FIRST(r)->prev = col;
 	LAST(r)->next = &clip_text.tail;
@@ -299,16 +320,16 @@ static short get_first_drive(void)
 	short		drive;
 
 	drive = Dgetdrv();
-	drives = Dsetdrv(drive);					/* Alle Laufwerke */
+	drives = Dsetdrv(drive);					/* Alle Laufwerke | All drives */
 	if (drives == 0)
 		drive = -1;
 	else if (drives <= 3)
-		drive = 0;										/* Benutze Laufwerk A */
+		drive = 0;								/* Benutze Laufwerk A | Use Drive A */
 	else
 	{
 		drives >>= 2;
-		drive = 2;										/* Beginne bei Laufwerk C */
-		while (!(drives & 1) && drive < 32)    /* Laufwerk gefunden */
+		drive = 2;								/* Beginne bei Laufwerk C | Start with Drive C*/
+		while (!(drives & 1) && drive < 32)    /* Laufwerk gefunden | Drive Found */
 		{
 			drive++;
 			drives >>= 1;
@@ -322,8 +343,8 @@ void init_clipbrd(void)
 	PATH		s;
 	char		*str;
 
-	scrp_read (clip_dir);									/* Scrap-Directory lesen */
-	if (clip_dir[0] == EOS)									/* Noch keines gesetzt */
+	scrp_read (clip_dir);						/* Scrap-Directory lesen | Read Scrap Directory */
+	if (clip_dir[0] == EOS)						/* Noch keines gesetzt   | None set yet */
 	{
 		if ((str=getenv("SCRAPDIR"))!=NULL && *str!=EOS)
 			strcpy(clip_dir, str);
@@ -339,21 +360,21 @@ void init_clipbrd(void)
 			if (drive > 0)
 				clip_dir[0] = 'A' + (char) drive;
 		}
-		scrp_write (clip_dir);								/* Scrap-Directory setzen */
+		scrp_write (clip_dir);					/* Scrap-Directory setzen | Set Scrap Directory */
 	}
 	if (!make_normalpath(clip_dir))
 	{
 		if (clip_dir[0]=='A' || clip_dir[0]=='B' ||
 		    clip_dir[0]=='a' || clip_dir[0]=='b')
-			clip_dir[0] = EOS;						/* Kein Klemmbrett auf Disketten! */
+			clip_dir[0] = EOS;					/* Kein Klemmbrett auf Disketten! | No clipboard on floppy disks!*/
 		else
 		{
 			strcpy (s, clip_dir);
-			s[strlen(s)-1] = EOS;					/* Backslash l�schen */
+			s[strlen(s)-1] = EOS;				/* Backslash l�schen | Delete Backslash */
 			if (Dcreate(s) != 0)
 			{
 				note(1, 0, NOSCRAP);
-				clip_dir[0] = EOS;					/* Kein Klemmbrett */
+				clip_dir[0] = EOS;				/* Kein Klemmbrett | No clipboard */
 			}
 		}
 	}
