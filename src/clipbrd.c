@@ -36,7 +36,7 @@ static short	save_xpos;
 static bool	last_was_bin = FALSE;
 static long	clip_timestamp = 0;
 
-/*******************************************************************************/
+/***************************************************************************/
 
 void clr_undo(void)
 {
@@ -119,7 +119,11 @@ void end_undo_seq(void)
 			memcpy(undo, undo+i, (short) sizeof(short) * undo_anz);
 			break;
 		}
-	add_undo(END_UNDO);
+	/* Add END_UNDO marker directly without clearing redo history.
+	   Redo should only be cleared when the user makes a NEW edit, not
+	   when ending an undo sequence. */
+	if (undo_anz<MAX_UNDO && (undo_anz==0 || undo[undo_anz-1]!=END_UNDO))
+		undo[undo_anz++] = END_UNDO;
 }
 
 void add_undo(short undo_op)
@@ -248,7 +252,7 @@ void do_undo_col(TEXTP t_ptr, short undo_type)
 }
 
 
-/*******************************************************************************/
+/***************************************************************************/
 
 void save_clip(void)		/* nur wegschreiben | Just write away */
 {
