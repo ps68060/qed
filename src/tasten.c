@@ -57,46 +57,11 @@ static void ctrl_word_delete(TEXTP t_ptr);
 static void word_bs(TEXTP t_ptr);
 static void ctrl_word_bs(TEXTP t_ptr);
 
+static void toggle_line_comment(TEXTP t_ptr);
+static void handle_ctags_search(TEXTP t_ptr);
+
 static char	alt_str[4];
 static short	alt_cnt = -1;
-
-static bool pos_move(TEXTP t_ptr, long delta)
-{
-	LINEP l_ptr;
-
-	l_ptr = t_ptr->cursor_line;
-	if (!t_ptr->up_down)
-	{
-		t_ptr->desire_x = bild_pos(t_ptr->xpos,l_ptr,t_ptr->loc_opt->tab,t_ptr->loc_opt->tabsize);
-		t_ptr->up_down = TRUE;
-	}
-	if (delta < 0) /* rauf */
-	{
-		if (t_ptr->ypos==0) return FALSE;
-		delta = -delta;
-		if (delta > t_ptr->ypos)
-			delta = t_ptr->ypos;
-		t_ptr->ypos -= delta;
-		while (--delta>=0) PREV(l_ptr);
-		t_ptr->cursor_line = l_ptr;
-		t_ptr->xpos = inter_pos(t_ptr->desire_x,l_ptr,t_ptr->loc_opt->tab,t_ptr->loc_opt->tabsize);
-		return TRUE;
-	}
-	else if (delta>0) /* runter */
-	{
-		long rest = t_ptr->text.lines-t_ptr->ypos-1;
-
-		if (rest==0) return FALSE;
-		if (delta>rest) delta = (short)rest;
-		t_ptr->ypos += delta;
-		while (--delta>=0)	NEXT(l_ptr);
-		t_ptr->cursor_line = l_ptr;
-		t_ptr->xpos = inter_pos(t_ptr->desire_x,l_ptr,t_ptr->loc_opt->tab,t_ptr->loc_opt->tabsize);
-		return TRUE;
-	}
-	return FALSE;
-}
-
 
 /*
  * Bewegen im Text
@@ -771,6 +736,155 @@ static bool is_keyword(TEXTP t_ptr, char *word)
 	return FALSE;
 }
 
+/* Handle CTAGS object search with Ctrl-] */
+static void handle_ctags_search(TEXTP t_ptr)
+{
+	char word[256];
+	PATH tags_path;
+	char full_tag_path[MAX_PATH_LEN];
+	int num_tags;
+	const char *tag_file;
+	int tag_line;
+	TEXTP target_text;
+
+	get_word_at_cursor(t_ptr, word, sizeof(word));
+
+	if (word[0] != '\0' && !is_keyword(t_ptr, word))
+	{
+		/* Load CTAG file from the directory of the current file */
+		split_filename(t_ptr->filename, tags_path, NULL);
+		strcat(tags_path, "tags");
+
+		num_tags = load_ctags(tags_path);
+		if (num_tags > 0)
+		{
+			tag_file = get_tag_file(word);
+			tag_line = get_tag_line(word);
+
+			if (tag_file && tag_line >= 0)
+			{
+				/* Construct full path for tag file */
+				split_filename(t_ptr->filename, full_tag_path, NULL);
+				strcat(full_tag_path, tag_file);
+
+				/* Load or fetch the text structure for the target file */
+				target_text = load_or_get_text(full_tag_path);
+				if (target_text)
+				{
+					/* Navigate to the tag location (handles numeric lines and patterns) */
+					if (!navigate_to_tag_in_text(target_text, tag_line, word))
+					{
+						/* navigation failed - give user feedback */
+						Bconout(2, 7);
+					}
+				}
+			}
+		}
+	}
+	else if (word[0] == '\0')
+	{
+		Bconout(2, 7);  /* beep - no word at cursor */
+	}
+}
+
+
+/* Helper function to get line-comment symbol from syntax file */
+static char* get_line_comment_symbol(TEXTP t_ptr)
+{
+	CACHEBASE *ca_base = (CACHEBASE *) t_ptr->text.hl_anchor;
+	TXTRULE *trule;
+	RULE *rule;
+	STRINGENTRY *se;
+	int i;
+
+	if (!ca_base || !ca_base->txtrule)
+		return NULL;
+
+	trule = ca_base->txtrule;
+
+	/* Search for a line-comment rule (marked with RULEF_EOL) */
+	for (rule = trule->rules; rule; rule = rule->next)
+	{
+		if (rule->type == RULE_FROM && (rule->flags & RULEF_EOL))
+		{
+			/* This is a line-comment rule. Return the first string entry found */
+			for (i = 0; i < 256; i++)
+			{
+				se = rule->kwstring[i];
+				if (se && se->name && strlen(se->name) > 0)
+					return se->name;
+			}
+		}
+	}
+	return NULL;
+}
+
+
+/* Toggle line comment on current line */
+static void toggle_line_comment(TEXTP t_ptr)
+{
+	char *comment_symbol = get_line_comment_symbol(t_ptr);
+	short comment_len;
+	char *line_text;
+	short i;
+	bool is_commented;
+
+	if (!comment_symbol)
+		return; /* No comment symbol found */
+
+	comment_len = strlen(comment_symbol);
+	if (comment_len == 0)
+		return;
+
+	get_undo_col(t_ptr);
+	
+	line_text = TEXT(t_ptr->cursor_line);
+	is_commented = FALSE;
+
+	/* Check if line is already commented */
+	if (t_ptr->cursor_line->len >= comment_len)
+	{
+		is_commented = TRUE;
+		for (i = 0; i < comment_len; i++)
+		{
+			if (line_text[i] != comment_symbol[i])
+			{
+				is_commented = FALSE;
+				break;
+			}
+		}
+	}
+
+	if (is_commented)
+	{
+		/* Remove comment symbol from beginning of line */
+		short old_xpos = t_ptr->xpos;
+		
+		/* Delete the comment symbols */
+		for (i = 0; i < comment_len; i++)
+		{
+			t_ptr->xpos = 0; /* Always delete from position 0 */
+			char_delete(t_ptr);
+		}
+		
+		/* Restore cursor position approximately */
+		if (old_xpos > 0)
+			t_ptr->xpos = (old_xpos >= comment_len) ? old_xpos - comment_len : 0;
+	}
+	else
+	{
+		/* Add comment symbol at beginning of line */
+		t_ptr->xpos = 0;
+		INSERT(&t_ptr->cursor_line, 0, comment_len, comment_symbol);
+		/* REALLOC already updated the line length and pointer */
+		t_ptr->xpos = comment_len; /* Move cursor after the comment symbol */
+	}
+
+	t_ptr->up_down = FALSE;
+	t_ptr->moved++;
+	hl_update(t_ptr);
+	make_chg(t_ptr->link, LINE_CHANGE, 0);
+}
 
 
 bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
@@ -797,52 +911,23 @@ bool edit_key(TEXTP t_ptr, WINDOWP window, short kstate, short kreturn)
 		return TRUE;
 	}
 
-    /* CTAGS object search with Ctrl-] */
-    if (ascii_code == ']' && ctrl)
-    {
-        char word[256];
-        PATH tags_path;
-        char full_tag_path[MAX_PATH_LEN];
-        
-        get_word_at_cursor(t_ptr, word, sizeof(word));
-        
-        if (word[0] != '\0' && !is_keyword(t_ptr, word))
-        {
-            /* Load CTAG file from the directory of the current file */
-            split_filename(t_ptr->filename, tags_path, NULL);
-            strcat(tags_path, "tags");
-            
-            int num_tags = load_ctags(tags_path);
-            if (num_tags > 0)
-            {
-                const char *tag_file = get_tag_file(word);
-                int tag_line = get_tag_line(word);
-                
-				if (tag_file && tag_line >= 0)
-				{
-					/* Construct full path for tag file */
-					split_filename(t_ptr->filename, full_tag_path, NULL);
-					strcat(full_tag_path, tag_file);
+	/* Toggle line comment with Ctrl-/ */
+	if (ascii_code == '/' && ctrl)
+	{
+		if (!t_ptr->block)
+			cursor_visible(window, t_ptr);
+		toggle_line_comment(t_ptr);
+		return TRUE;
+	}
 
-					/* Load or fetch the text structure for the target file */
-					TEXTP target_text = load_or_get_text(full_tag_path);
-					if (target_text)
-					{
-						/* Navigate to the tag location (handles numeric lines and patterns) */
-						if (!navigate_to_tag_in_text(target_text, tag_line, word))
-						{
-							/* navigation failed - give user feedback */
-							Bconout(2, 7);
-						}
-					}
-				}
-            }
-        }
-        else if (word[0] == '\0')
-        {
-            Bconout(2, 7);  /* beep - no word at cursor */
-        }
-    }
+	/* CTAGS object search with Ctrl-] */
+	if (ascii_code == ']' && ctrl)
+	{
+		if (!t_ptr->block)
+			cursor_visible(window, t_ptr);
+		handle_ctags_search(t_ptr);
+		return TRUE;
+	}
 
 
 	if (alt_cnt != -1 && !(nkey & NKF_FUNC))
