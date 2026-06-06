@@ -5,6 +5,9 @@
 #ifndef CTAGS_H
 #define CTAGS_H
 
+#include <stdbool.h>
+#include "global.h"
+
 int load_ctags(const char *filename);
 const char *find_tag(const char *tag_name);
 const char *get_tag_file(const char *tag_name);
