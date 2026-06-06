@@ -884,10 +884,8 @@ static void toggle_line_comment(TEXTP t_ptr)
 	short i;
 	bool is_commented;
 
-    printf("toggle_line_comment: ctrl / pressed. Symbol = %s \n", comment_symbol);
 	if (!comment_symbol)
 	{
-	    printf("No comment symbol found.\n");
 		return; /* No comment symbol found */
 	}
 
@@ -936,18 +934,12 @@ static void toggle_line_comment(TEXTP t_ptr)
 		t_ptr->xpos = 0;
 		INSERT(&t_ptr->cursor_line, 0, comment_len, comment_symbol);
 
-        /* Force line refresh */
-        hl_update_zeile(&t_ptr->text, t_ptr->cursor_line);
 		/* REALLOC already updated the line length and pointer */
 		t_ptr->xpos = comment_len; /* Move cursor after the comment symbol */
 	}
 
-///	t_ptr->up_down = FALSE;
-    if (t_ptr->cursor_line->next)
-    {
-        t_ptr->cursor_line = t_ptr->cursor_line->next;
-        t_ptr->xpos = 0;   /* or keep same column if you prefer */
-    }
+    /* Redraw the current line */
+    hl_update_zeile(&t_ptr->text, t_ptr->cursor_line);
 
 	t_ptr->moved++;
 	hl_update(t_ptr);
