@@ -24,6 +24,10 @@ Selcolor = 3
 From = "{"
 To = "}"
 
+<Comment>
+From = "//"
+To = EOL
+
 <String>
 From = "'"
 To = "'"
@@ -44,11 +48,18 @@ Attribs = BOLD
 Attribs = BOLD
 
 <Keywords>
-Keyword = "and","begin","const","case","downto","div","do","external"
-Keyword = "exit","else","end","function","forward","for","goto","if","in"
-Keyword = "label","loop","mod","not","otherwise","or","procedure"
-Keyword = "program","repeat","set","type","then","to","until","var"
-Keyword = "while","with"
+Keyword = "and"
+Keyword = "begin"
+Keyword = "const","case","class","constructor"
+Keyword = "destructor","downto","div","do"
+Keyword = "external","exit","else","end"
+Keyword = "function","forward","for"
+Keyword = "goto"
+Keyword = "if","inherited","interface","implementation","in"
+Keyword = "label","loop","mod","not","otherwise","or","object"
+keyword = "procedure","private","program","public"
+Keyword = "repeat","set","type","then","to","until","uses","var"
+Keyword = "while","with","record","val","code"
 (Color2)
 Attribs = BOLD
 (Color16)
@@ -57,8 +68,8 @@ Attribs = BOLD
 Attribs = BOLD
 
 <Variable types>
-Keyword = "array","alfa","boolean","byte","char","integer","long_integer"
-Keyword = "of","packed","real","short_integer","string","text"
+Keyword = "array","alfa","boolean","byte","char","integer","long_integer","word","longint","smallInt"
+Keyword = "of","packed","real","short_integer","shortstring","string","text"
 (Color2)
 Attribs = BOLD
 (Color16)
