@@ -29,6 +29,8 @@
 #define LEFT	3
 #define RIGHT	4
 
+#define RULEF_EOL 1
+
 /* lokale Prototypen */
 static void text_end(TEXTP t_ptr);
 static void text_start(TEXTP t_ptr);
@@ -62,6 +64,43 @@ static void handle_ctags_search(TEXTP t_ptr);
 
 static char	alt_str[4];
 static short	alt_cnt = -1;
+
+static bool pos_move(TEXTP t_ptr, long delta)
+{
+	LINEP l_ptr;
+
+	l_ptr = t_ptr->cursor_line;
+	if (!t_ptr->up_down)
+	{
+		t_ptr->desire_x = bild_pos(t_ptr->xpos,l_ptr,t_ptr->loc_opt->tab,t_ptr->loc_opt->tabsize);
+		t_ptr->up_down = TRUE;
+	}
+	if (delta < 0) /* rauf */
+	{
+		if (t_ptr->ypos==0) return FALSE;
+		delta = -delta;
+		if (delta > t_ptr->ypos)
+			delta = t_ptr->ypos;
+		t_ptr->ypos -= delta;
+		while (--delta>=0) PREV(l_ptr);
+		t_ptr->cursor_line = l_ptr;
+		t_ptr->xpos = inter_pos(t_ptr->desire_x,l_ptr,t_ptr->loc_opt->tab,t_ptr->loc_opt->tabsize);
+		return TRUE;
+	}
+	else if (delta>0) /* runter */
+	{
+		long rest = t_ptr->text.lines-t_ptr->ypos-1;
+
+		if (rest==0) return FALSE;
+		if (delta>rest) delta = (short)rest;
+		t_ptr->ypos += delta;
+		while (--delta>=0)	NEXT(l_ptr);
+		t_ptr->cursor_line = l_ptr;
+		t_ptr->xpos = inter_pos(t_ptr->desire_x,l_ptr,t_ptr->loc_opt->tab,t_ptr->loc_opt->tabsize);
+		return TRUE;
+	}
+	return FALSE;
+}
 
 /*
  * Bewegen im Text
@@ -793,7 +832,7 @@ static char* get_line_comment_symbol(TEXTP t_ptr)
 {
 	CACHEBASE *ca_base = (CACHEBASE *) t_ptr->text.hl_anchor;
 	TXTRULE *trule;
-	RULE *rule;
+	RULE *rule, *endrule;
 	STRINGENTRY *se;
 	int i;
 
@@ -802,20 +841,36 @@ static char* get_line_comment_symbol(TEXTP t_ptr)
 
 	trule = ca_base->txtrule;
 
-	/* Search for a line-comment rule (marked with RULEF_EOL) */
-	for (rule = trule->rules; rule; rule = rule->next)
-	{
-		if (rule->type == RULE_FROM && (rule->flags & RULEF_EOL))
-		{
-			/* This is a line-comment rule. Return the first string entry found */
-			for (i = 0; i < 256; i++)
-			{
-				se = rule->kwstring[i];
-				if (se && se->name && strlen(se->name) > 0)
-					return se->name;
-			}
-		}
-	}
+    for (rule = trule->rules; rule; rule = rule->next)
+    {
+        /* Look for From = "//" rules (even without RULEF_EOL) */
+        if (rule->type != RULE_FROM)
+            continue;
+        se = NULL;
+
+        for (i = 0; i < 256; i++)
+        {
+            if (rule->kwstring[i])
+            {
+                se = rule->kwstring[i];
+                break;
+            }
+        }
+
+        if (!se || !se->name)
+            continue;
+
+        /* Find matching closer */
+        endrule = rule->link;
+
+        if (endrule &&
+            endrule->type == RULE_TO &&
+            (endrule->flags & RULEF_EOL))
+        {
+            /* This is the comment symbol */
+            return se->name;
+        }
+    }
 	return NULL;
 }
 
@@ -829,8 +884,12 @@ static void toggle_line_comment(TEXTP t_ptr)
 	short i;
 	bool is_commented;
 
+    printf("toggle_line_comment: ctrl / pressed. Symbol = %s \n", comment_symbol);
 	if (!comment_symbol)
+	{
+	    printf("No comment symbol found.\n");
 		return; /* No comment symbol found */
+	}
 
 	comment_len = strlen(comment_symbol);
 	if (comment_len == 0)
@@ -876,14 +935,23 @@ static void toggle_line_comment(TEXTP t_ptr)
 		/* Add comment symbol at beginning of line */
 		t_ptr->xpos = 0;
 		INSERT(&t_ptr->cursor_line, 0, comment_len, comment_symbol);
+
+        /* Force line refresh */
+        hl_update_zeile(&t_ptr->text, t_ptr->cursor_line);
 		/* REALLOC already updated the line length and pointer */
 		t_ptr->xpos = comment_len; /* Move cursor after the comment symbol */
 	}
 
-	t_ptr->up_down = FALSE;
+///	t_ptr->up_down = FALSE;
+    if (t_ptr->cursor_line->next)
+    {
+        t_ptr->cursor_line = t_ptr->cursor_line->next;
+        t_ptr->xpos = 0;   /* or keep same column if you prefer */
+    }
+
 	t_ptr->moved++;
 	hl_update(t_ptr);
-	make_chg(t_ptr->link, LINE_CHANGE, 0);
+	make_chg(t_ptr->link, TOTAL_CHANGE, 0);
 }
 
 
