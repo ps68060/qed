@@ -834,7 +834,7 @@ static char* get_line_comment_symbol(TEXTP t_ptr)
 	TXTRULE *trule;
 	RULE *rule, *endrule;
 	STRINGENTRY *se;
-	int i;
+	int i, j;
 
 	if (!ca_base || !ca_base->txtrule)
 		return NULL;
@@ -843,7 +843,7 @@ static char* get_line_comment_symbol(TEXTP t_ptr)
 
     for (rule = trule->rules; rule; rule = rule->next)
     {
-        /* Look for From = "//" rules (even without RULEF_EOL) */
+        /* Look for From = "..." rules (start of line comments) */
         if (rule->type != RULE_FROM)
             continue;
         se = NULL;
@@ -863,12 +863,46 @@ static char* get_line_comment_symbol(TEXTP t_ptr)
         /* Find matching closer */
         endrule = rule->link;
 
-        if (endrule &&
-            endrule->type == RULE_TO &&
-            (endrule->flags & RULEF_EOL))
+        if (endrule && endrule->type == RULE_TO)
         {
-            /* This is the comment symbol */
-            return se->name;
+            /* Check if this end rule indicates end-of-line comment */
+            
+            /* Primary check: explicit RULEF_EOL flag */
+            if ((endrule->flags & RULEF_EOL))
+            {
+                return se->name;
+            }
+            
+            /* Secondary check: endrule with minimal content (only null terminator) */
+            /* This handles "To = EOL" which creates kwsinglechar[0] = TRUE */
+            int has_real_content = 0;
+            
+            /* Check for non-trivial single char matches (skip index 0 which is '\0') */
+            for (j = 1; j < 256; j++)
+            {
+                if (endrule->kwsinglechar[j])
+                {
+                    has_real_content = 1;
+                    break;
+                }
+            }
+            
+            /* If no single char matches other than null terminator, check kwstring */
+            if (!has_real_content)
+            {
+                for (j = 0; j < 256; j++)
+                {
+                    if (endrule->kwstring[j])
+                    {
+                        has_real_content = 1;
+                        break;
+                    }
+                }
+            }
+            
+            /* If end rule has no real content patterns, it matches EOL */
+            if (!has_real_content)
+                return se->name;
         }
     }
 	return NULL;
